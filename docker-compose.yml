@@ -1,0 +1,101 @@
+services:
+  namenode:
+    image: apache/hadoop:3.4.1
+    container_name: namenode
+    hostname: namenode
+    platform: linux/amd64
+    user: root
+    ports:
+      - "9870:9870"     # Web UI NameNode
+      - "9000:9000"     # RPC HDFS
+      - "9001:9001"
+    volumes:
+      - ./dataset:/datasets
+      - ./namenode_data:/hadoop/dfs/name
+      - ./config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml
+      - ./config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml
+    command: >
+      bash -c "
+      if [ ! -d /hadoop/dfs/name/current ]; then
+        mkdir -p /hadoop/dfs/name &&
+        /opt/hadoop/bin/hdfs namenode -format;
+      fi &&
+      /opt/hadoop/bin/hdfs namenode
+      "
+
+  datanode:
+    image: apache/hadoop:3.4.1
+    container_name: datanode
+    hostname: datanode
+    platform: linux/amd64
+    depends_on:
+      - namenode
+    ports:
+      - "9864:9864"     # Web UI DataNode
+    volumes:
+      - ./datanode_data:/hadoop/dfs/data
+      - ./config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml
+      - ./config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml
+    command: >
+      bash -c "
+      mkdir -p /hadoop/dfs/data &&
+      /opt/hadoop/bin/hdfs datanode
+      "
+
+  datanode2:
+    image: apache/hadoop:3.4.1
+    container_name: datanode2
+    hostname: datanode2
+    platform: linux/amd64
+    depends_on:
+      - namenode
+    ports:
+      - "9865:9864"     # Web UI DataNode 2
+    volumes:
+      - ./datanode2_data:/hadoop/dfs/data  # Define una carpeta específica
+      - ./config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml
+      - ./config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml
+    command: >
+      bash -c "
+      mkdir -p /hadoop/dfs/data &&
+      /opt/hadoop/bin/hdfs datanode
+      "
+
+  hive-server:
+    image: bde2020/hive:latest
+    container_name: hive-server
+    hostname: hive-server
+    platform: linux/amd64
+    user: root
+    depends_on:
+      - namenode
+      - datanode
+      - datanode2
+    ports:
+      - "10000:10000"   # HiveServer2 (JDBC)
+      - "9083:9083"     # Metastore Thrift
+    volumes:
+      - ./dataset:/datasets
+      - ./config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml
+      - ./config/hive-site.xml:/opt/hive/conf/hive-site.xml
+    environment:
+      CORE_CONF_fs_defaultFS: "hdfs://namenode:9000"
+      HIVE_METASTORE_URI: "thrift://hive-server:9083"
+      HIVE_SERVER2_THRIFT_BIND_HOST: "0.0.0.0"
+      HIVE_SERVER2_THRIFT_PORT: "10000"
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        echo "Inicializando el esquema de Hive..."
+        /opt/hive/bin/schematool -initSchema -dbType derby || echo "El esquema ya está inicializado."
+        echo "Iniciando el servicio Metastore..."
+        /opt/hive/bin/hive --service metastore &
+        sleep 10
+        echo "Iniciando HiveServer2..."
+        /opt/hive/bin/hive --service hiveserver2
+
+volumes:
+  namenode_data:
+  datanode_data:
+  datanode2_data:
